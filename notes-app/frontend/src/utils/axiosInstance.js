@@ -1,7 +1,7 @@
 import axios from "axios"
 
 const axiosInstance = axios.create({
-    baseURL: "https://notes-app-backend-04dh.onrender.com/api",
+    baseURL: "https://notes-app-1-y8xe.onrender.com/api",
     withCredentials: true
 })
 
