@@ -10,13 +10,14 @@ const noteRoutes = require("./routes/noteRoute")
 dotenv.config()
 
 const app = express()
+const FRONTEND_URL = process.env.FRONTEND_URL
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 app.use(cookieParser())
 
 app.use(cors({
-    origin: "http://localhost:5173",
+    origin: FRONTEND_URL,
     credentials: true
 }))
 

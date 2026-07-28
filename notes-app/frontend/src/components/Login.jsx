@@ -18,7 +18,7 @@ function Login({setUser}) {
         password
       })
       const {data} = await axios.get("/users/profile")
-      setUser(data)
+      if(data) setUser(data)
       navigate("/")
     } catch (error) {
       setError(error.response?.data?.message || "server error")

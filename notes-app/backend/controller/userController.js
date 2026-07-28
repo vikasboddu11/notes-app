@@ -4,6 +4,15 @@ const generateToken = require('../token/generateToken')
 const RefreshToken = require("../model/refreshTokenModel")
 const { saveRefreshToken, deleteRefreshToken } = require('../services/tokenServices')
 
+const isProduction = process.env.NODE_ENV === "production"
+
+const getCookieOptions = (maxAge) => ({
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
+    maxAge
+})
+
 const registerUser = async(req, res) => {
     const { userName, email, password } = req.body
     try {
@@ -25,8 +34,8 @@ const registerUser = async(req, res) => {
         const { accessToken, refreshToken } = generateToken(user._id)
 
         await saveRefreshToken(user._id, refreshToken)
-        res.cookie("accessToken", accessToken, { httpOnly: true, secure: true, sameSite: "none", maxAge: 15 * 60 * 1000 })
-        res.cookie("refreshToken", refreshToken, { httpOnly: true, secure: true, sameSite: "none", maxAge: 7 * 24 * 60 * 60 * 1000 })
+        res.cookie("accessToken", accessToken, getCookieOptions(15 * 60 * 1000))
+        res.cookie("refreshToken", refreshToken, getCookieOptions(7 * 24 * 60 * 60 * 1000))
         res.status(200).json({
             message: "Login Successful"
         })
@@ -58,8 +67,8 @@ const loginUser = async(req, res) => {
         }
         const { accessToken, refreshToken } = generateToken(user._id)
         await saveRefreshToken(user._id, refreshToken)
-        res.cookie("accessToken", accessToken, { httpOnly: true, secure: true, sameSite: "none", maxAge: 15 * 60 * 1000 })
-        res.cookie("refreshToken", refreshToken, { httpOnly: true, secure: true, sameSite: "none", maxAge: 7 * 24 * 60 * 60 * 1000 })
+        res.cookie("accessToken", accessToken, getCookieOptions(15 * 60 * 1000))
+        res.cookie("refreshToken", refreshToken, getCookieOptions(7 * 24 * 60 * 60 * 1000))
         res.status(200).json({
             message: "Login Successful"
         })
@@ -107,7 +116,7 @@ const refreshAccessToken = async(req, res) => {
         }
         const decoded = jwt.verify(token, process.env.JWT_REFRESH_TOKEN)
         const { accessToken } = generateToken(decoded.id)
-        res.cookie("accessToken", accessToken, { httpOnly: true, secure: true, sameSite: "none", maxAge: 15 * 60 * 1000 })
+        res.cookie("accessToken", accessToken, getCookieOptions(15 * 60 * 1000))
         res.status(201).json({
             message: "Access token refreshed"
         })
