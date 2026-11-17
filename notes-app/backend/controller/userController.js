@@ -1,130 +1,215 @@
-const User = require('../model/userModel')
 const jwt = require("jsonwebtoken")
-const generateToken = require('../token/generateToken')
-const RefreshToken = require("../model/refreshTokenModel")
-const { saveRefreshToken, deleteRefreshToken } = require('../services/tokenServices')
+const User = require("../model/userModel")
+const generateToken = require("../token/generateToken")
+const {
+    ACCESS_TOKEN_TTL_SECONDS,
+    REFRESH_TOKEN_TTL_SECONDS,
+    getTokenSecrets
+} = require("../config/tokenConfig")
+const {
+    saveRefreshToken,
+    consumeRefreshToken,
+    deleteRefreshToken
+} = require("../services/tokenServices")
 
-const isProduction = process.env.NODE_ENV === "production"
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-const getCookieOptions = (maxAge) => ({
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: isProduction ? "none" : "lax",
-    maxAge
+const getCookieOptions = (maxAge) => {
+    const isProduction = process.env.NODE_ENV === "production"
+    const options = {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
+        path: "/"
+    }
+
+    if (typeof maxAge === "number") {
+        options.maxAge = maxAge
+    }
+
+    return options
+}
+
+const clearAuthCookies = (res) => {
+    const options = getCookieOptions()
+    res.clearCookie("accessToken", options)
+    res.clearCookie("refreshToken", options)
+}
+
+const getPublicUser = (user) => ({
+    id: user._id.toString(),
+    userName: user.userName,
+    email: user.email
 })
 
-const registerUser = async(req, res) => {
-    const { userName, email, password } = req.body
-    try {
-        if (!userName || !email || !password) {
-            return res.status(400).json({ message: "Please fill all the fields" })
-        }
-        if (password.length < 6) {
-            return res.status(400).json({ message: "Password must be atleast 6 letters" })
-        }
-        const userExists = await User.findOne({ email })
-        if (userExists) {
-            return res.status(400).json({ message: "User already exists" })
-        }
-        const user = await User.create({
-            userName,
-            email,
-            password
-        })
-        const { accessToken, refreshToken } = generateToken(user._id)
+const setAuthCookies = (res, tokens) => {
+    res.cookie(
+        "accessToken",
+        tokens.accessToken,
+        getCookieOptions(ACCESS_TOKEN_TTL_SECONDS * 1000)
+    )
+    res.cookie(
+        "refreshToken",
+        tokens.refreshToken,
+        getCookieOptions(REFRESH_TOKEN_TTL_SECONDS * 1000)
+    )
+}
 
-        await saveRefreshToken(user._id, refreshToken)
-        res.cookie("accessToken", accessToken, getCookieOptions(15 * 60 * 1000))
-        res.cookie("refreshToken", refreshToken, getCookieOptions(7 * 24 * 60 * 60 * 1000))
-        res.status(200).json({
-            message: "Login Successful"
+const createSession = async (user, res) => {
+    const tokens = generateToken(user._id)
+    await saveRefreshToken(user._id, tokens.refreshToken, tokens.refreshTokenId)
+    setAuthCookies(res, tokens)
+}
+
+const sendAuthError = (res, error) => {
+    if (error.code === 11000) {
+        return res.status(409).json({ message: "An account with this email already exists" })
+    }
+
+    if (error.name === "ValidationError") {
+        return res.status(400).json({ message: "Invalid account details" })
+    }
+
+    console.error("Authentication request failed", error)
+    return res.status(500).json({ message: "Server error" })
+}
+
+const registerUser = async (req, res) => {
+    const userName = typeof req.body?.userName === "string" ? req.body.userName.trim() : ""
+    const email = typeof req.body?.email === "string"
+        ? req.body.email.trim().toLowerCase()
+        : ""
+    const password = typeof req.body?.password === "string" ? req.body.password : ""
+
+    if (!userName || !email || !password) {
+        return res.status(400).json({ message: "Username, email, and password are required" })
+    }
+    if (userName.length < 2 || userName.length > 50) {
+        return res.status(400).json({ message: "Username must be between 2 and 50 characters" })
+    }
+    if (!EMAIL_PATTERN.test(email) || email.length > 254) {
+        return res.status(400).json({ message: "Please enter a valid email address" })
+    }
+    if (password.trim().length === 0 || password.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" })
+    }
+    if (Buffer.byteLength(password, "utf8") > 72) {
+        return res.status(400).json({ message: "Password must not exceed 72 bytes" })
+    }
+
+    try {
+        if (await User.exists({ email })) {
+            return res.status(409).json({
+                message: "An account with this email already exists"
+            })
+        }
+
+        const user = await User.create({ userName, email, password })
+        await createSession(user, res)
+        return res.status(201).json({
+            message: "Registration successful",
+            user: getPublicUser(user)
         })
     } catch (error) {
-        console.log(error)
-        res.status(500).json({
-            message: "Server error"
-        })
+        return sendAuthError(res, error)
     }
 }
 
-const loginUser = async(req, res) => {
-    const { email, password } = req.body
+const loginUser = async (req, res) => {
+    const email = typeof req.body?.email === "string"
+        ? req.body.email.trim().toLowerCase()
+        : ""
+    const password = typeof req.body?.password === "string" ? req.body.password : ""
+
+    if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required" })
+    }
+
     try {
-        if (!email || !password) {
-            return res.status(400).json({ message: "Please fill all the fields" })
+        const user = await User.findOne({ email }).select("+password")
+        if (!user || !(await user.matchPassword(password))) {
+            return res.status(401).json({ message: "Invalid email or password" })
         }
-        const user = await User.findOne({ email })
+
+        await createSession(user, res)
+        return res.status(200).json({
+            message: "Login successful",
+            user: getPublicUser(user)
+        })
+    } catch (error) {
+        return sendAuthError(res, error)
+    }
+}
+
+const logoutUser = async (req, res) => {
+    try {
+        const token = req.cookies?.refreshToken
+        if (token) {
+            await deleteRefreshToken(token)
+        }
+
+        clearAuthCookies(res)
+        return res.status(200).json({ message: "Logged out successfully" })
+    } catch (error) {
+        clearAuthCookies(res)
+        return sendAuthError(res, error)
+    }
+}
+
+const userProfile = (req, res) => {
+    return res.status(200).json(getPublicUser(req.user))
+}
+
+const refreshAccessToken = async (req, res) => {
+    const token = req.cookies?.refreshToken
+    if (!token) {
+        return res.status(401).json({ message: "Refresh token is required" })
+    }
+
+    let payload
+    try {
+        const { refreshTokenSecret } = getTokenSecrets()
+        payload = jwt.verify(token, refreshTokenSecret, {
+            algorithms: ["HS256"]
+        })
+    } catch {
+        return res.status(401).json({ message: "Refresh token is invalid or expired" })
+    }
+
+    if (
+        typeof payload !== "object" ||
+        payload.tokenType !== "refresh" ||
+        !payload.sub ||
+        !payload.jti
+    ) {
+        return res.status(401).json({ message: "Refresh token is invalid" })
+    }
+
+    try {
+        const user = await User.findById(payload.sub)
         if (!user) {
-            return res.status(401).json({
-                message: "User does not exist, please try to regiester"
-            })
+            return res.status(401).json({ message: "Refresh token is invalid" })
         }
-        const isMatch = await user.matchPassword(password)
-        if (!isMatch) {
-            return res.status(401).json({
-                message: "Wrong password"
-            })
-        }
-        const { accessToken, refreshToken } = generateToken(user._id)
-        await saveRefreshToken(user._id, refreshToken)
-        res.cookie("accessToken", accessToken, getCookieOptions(15 * 60 * 1000))
-        res.cookie("refreshToken", refreshToken, getCookieOptions(7 * 24 * 60 * 60 * 1000))
-        res.status(200).json({
-            message: "Login Successful"
-        })
-    } catch (error) {
-        console.log(error)
-        res.status(500).json({
-            message: "Server error"
-        })
-    }
-}
 
-const logoutUser = async(req, res) => {
-    const token = req.cookies.refreshToken
-    if (token) {
-        await deleteRefreshToken(token)
-    }
-    res.clearCookie("accessToken")
-    res.clearCookie("refreshToken")
-    res.status(200).json({
-        message: "Logged out successfully"
-    })
-}
-
-const userProfile = async(req, res) => {
-    const user = req.user
-    res.status(200).json({
-        userName: user.userName,
-        email: user.email
-    })
-}
-
-const refreshAccessToken = async(req, res) => {
-    try {
-        const token = req.cookies.refreshToken
-        if (!token) {
-            return res.status(401).json({
-                message: "RefreshToken unaivailable, try to login"
-            })
-        }
-        const storedToken = await RefreshToken.findOne({ token })
+        const storedToken = await consumeRefreshToken(token, user._id, payload.jti)
         if (!storedToken) {
-            return res.status(403).json({
-                message: "Refresh token not available"
-            })
+            return res.status(401).json({ message: "Refresh token is invalid or has been used" })
         }
-        const decoded = jwt.verify(token, process.env.JWT_REFRESH_TOKEN)
-        const { accessToken } = generateToken(decoded.id)
-        res.cookie("accessToken", accessToken, getCookieOptions(15 * 60 * 1000))
-        res.status(201).json({
-            message: "Access token refreshed"
+
+        await createSession(user, res)
+        return res.status(200).json({
+            message: "Tokens refreshed",
+            user: getPublicUser(user)
         })
     } catch (error) {
-        return res.status(403).json({
-            message: "Invalid or expired refresh token"
-        })
+        return sendAuthError(res, error)
     }
 }
 
-module.exports = { registerUser, loginUser, userProfile, logoutUser, refreshAccessToken }
+module.exports = {
+    registerUser,
+    loginUser,
+    logoutUser,
+    userProfile,
+    refreshAccessToken
+}

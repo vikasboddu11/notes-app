@@ -5,8 +5,8 @@ const { createNote, getNotes, getSingleNote, updateNote, deleteNote } = require(
 
 router.post("/", protect, createNote)
 router.get("/", protect, getNotes)
-router.get("/:_id", protect, getSingleNote)
-router.put("/:_id", protect, updateNote)
-router.delete("/:_id", protect, deleteNote)
+router.get("/:id", protect, getSingleNote)
+router.put("/:id", protect, updateNote)
+router.delete("/:id", protect, deleteNote)
 
 module.exports = router

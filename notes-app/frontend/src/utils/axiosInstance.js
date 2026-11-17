@@ -1,34 +1,52 @@
 import axios from "axios"
 
+const baseURL = (import.meta.env.VITE_API_URL || "http://localhost:3000/api")
+    .replace(/\/+$/, "")
+
 const axiosInstance = axios.create({
-    baseURL: "https://notes-app-1-y8xe.onrender.com/api",
+    baseURL,
     withCredentials: true
 })
 
+let refreshPromise
+
 axiosInstance.interceptors.response.use(
     (res) => res,
-    async(err) => {
-        const originalRequest = err.config
+    async (error) => {
+        const originalRequest = error.config
+        const requestUrl = originalRequest?.url || ""
+        const isAuthRequest = /^\/users\/(login|register|refresh|logout)(\/|$)/.test(requestUrl)
 
         if (
-            err.response &&
-            err.response.status === 401 &&
+            error.response?.status === 401 &&
+            originalRequest &&
             !originalRequest._retry &&
-            originalRequest.url !== "/users/refresh" &&
-            !originalRequest.url.includes("/users/login") &&
-            !originalRequest.url.includes("/users/register")
+            !isAuthRequest
         ) {
             originalRequest._retry = true
 
             try {
-                await axiosInstance.post("/users/refresh")
+                if (!refreshPromise) {
+                    refreshPromise = axiosInstance.post("/users/refresh")
+                        .finally(() => {
+                            refreshPromise = undefined
+                        })
+                }
+
+                await refreshPromise
                 return axiosInstance(originalRequest)
-            } catch (error) {
-                return Promise.reject(error)
+            } catch (refreshError) {
+                if (
+                    typeof window !== "undefined" &&
+                    [401, 403].includes(refreshError.response?.status)
+                ) {
+                    window.dispatchEvent(new Event("auth:expired"))
+                }
+                return Promise.reject(refreshError)
             }
         }
 
-        return Promise.reject(err)
+        return Promise.reject(error)
     }
 )
 

@@ -1,36 +1,29 @@
-const express = require("express")
-const dotenv = require("dotenv")
-const connectDB = require('./config/connectDB')
-const cookieParser = require("cookie-parser")
-const cors = require("cors")
+require("dotenv").config()
 
-const userRoutes = require("./routes/userRoute")
-const noteRoutes = require("./routes/noteRoute")
+const app = require("./app")
+const connectDB = require("./config/connectDB")
+const { getTokenSecrets } = require("./config/tokenConfig")
 
-dotenv.config()
+const startServer = async () => {
+    getTokenSecrets()
+    await connectDB()
 
-const app = express()
-const FRONTEND_URL = process.env.FRONTEND_URL
+    const port = Number(process.env.PORT) || 3000
+    const server = app.listen(port)
+    await new Promise((resolve, reject) => {
+        server.once("listening", resolve)
+        server.once("error", reject)
+    })
 
-app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
-app.use(cookieParser())
+    console.log(`Server running on http://localhost:${port}`)
+    return server
+}
 
-app.use(cors({
-    origin: FRONTEND_URL,
-    credentials: true
-}))
+if (require.main === module) {
+    startServer().catch((error) => {
+        console.error("Unable to start the server:", error.message)
+        process.exitCode = 1
+    })
+}
 
-connectDB()
-
-app.use("/api/users", userRoutes)
-app.get("/", (req, res) => {
-    res.send("Server is running successfully on users 🚀")
-})
-app.use("/api/notes", noteRoutes)
-
-const PORT = process.env.PORT || 3000
-
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`)
-})
+module.exports = { app, startServer }

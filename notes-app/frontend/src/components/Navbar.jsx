@@ -1,31 +1,34 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from "react-router-dom"
 import axios from '../utils/axiosInstance'
 
 function Navbar({ user, setUser }) {
 
   const [search, setSearch] = useState("")
+  const [logoutError, setLogoutError] = useState("")
   const navigate = useNavigate()
 
   useEffect(() => {
-    if(!user) return
+    if (!user) return
     const delay = setTimeout(() => {
-      navigate(search.trim() ? `/?search=${encodeURIComponent(search)}`: '/' )
+      const query = search.trim()
+      navigate(query ? `/?search=${encodeURIComponent(query)}` : "/")
     },500)
-    return() => clearTimeout(delay)
-  },[user, search, setUser])
+    return () => clearTimeout(delay)
+  }, [user, search, navigate])
 
   useEffect(() => {
     setSearch("")
-  },[user])
+  }, [user])
 
   const handleLogout = async() => {
+    setLogoutError("")
     try {
       await axios.post("/users/logout")
       setUser(null)
       navigate("/login")
     } catch (error) {
-      console.log("logout error:", error)
+      setLogoutError(error.response?.data?.message || "Unable to log out. Please try again.")
     }
   }
   return (
@@ -37,7 +40,14 @@ function Navbar({ user, setUser }) {
           {user && (
           <>
             <div>
-              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder='Search notes...' className='w-full px-6 py-3 bg-white text-black border border-gray-600 rounded-md outline-none focus:ring-2 focus:ring-blue-500' />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search notes..."
+                aria-label="Search notes"
+                className="w-full px-6 py-3 bg-white text-black border border-gray-600 rounded-md outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
             <div className="flex items-center space-x-4">
               <span className="text-gray-300 font-medium">
@@ -54,6 +64,7 @@ function Navbar({ user, setUser }) {
           )}
 
         </div>
+        {logoutError && <p role="alert" className="mt-2 text-sm text-red-300">{logoutError}</p>}
       </nav>
     </div>
   )

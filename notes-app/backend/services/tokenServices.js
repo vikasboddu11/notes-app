@@ -1,22 +1,33 @@
+const crypto = require("node:crypto")
 const RefreshToken = require("../model/refreshTokenModel")
+const { REFRESH_TOKEN_TTL_SECONDS } = require("../config/tokenConfig")
 
-const saveRefreshToken = async(userId, token) => {
+const hashToken = (token) => crypto.createHash("sha256").update(token).digest("hex")
 
-    await RefreshToken.create({
+const saveRefreshToken = async (userId, token, tokenId) => {
+    return RefreshToken.create({
         userId,
-        token,
-        expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000
+        tokenHash: hashToken(token),
+        tokenId,
+        expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000)
     })
-
 }
 
-const deleteRefreshToken = async(token) => {
+const consumeRefreshToken = async (token, userId, tokenId) => {
+    return RefreshToken.findOneAndDelete({
+        tokenHash: hashToken(token),
+        userId,
+        tokenId,
+        expiresAt: { $gt: new Date() }
+    })
+}
 
-    await RefreshToken.deleteOne({ token })
-
+const deleteRefreshToken = async (token) => {
+    return RefreshToken.deleteOne({ tokenHash: hashToken(token) })
 }
 
 module.exports = {
     saveRefreshToken,
+    consumeRefreshToken,
     deleteRefreshToken
 }

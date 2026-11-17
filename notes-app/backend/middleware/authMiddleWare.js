@@ -1,39 +1,47 @@
 const jwt = require("jsonwebtoken")
 const User = require("../model/userModel")
+const { getTokenSecrets } = require("../config/tokenConfig")
 
-const protect = async(req, res, next) => {
+const protect = async (req, res, next) => {
     try {
         const token = req.cookies.accessToken
-
         if (!token) {
             return res.status(401).json({
-                message: "Not authorized, please login"
+                message: "Authentication required"
             })
         }
 
-        let decoded
+        let payload
         try {
-            decoded = jwt.verify(token, process.env.JWT_ACCESS_TOKEN)
+            const { accessTokenSecret } = getTokenSecrets()
+            payload = jwt.verify(token, accessTokenSecret, {
+                algorithms: ["HS256"]
+            })
         } catch (err) {
             return res.status(401).json({
-                message: "Session expired, please login again"
+                message: "Access token is invalid or expired"
             })
         }
 
-        const user = await User.findById(decoded.id).select("-password")
+        if (
+            typeof payload !== "object" ||
+            payload.tokenType !== "access" ||
+            !payload.sub
+        ) {
+            return res.status(401).json({ message: "Invalid access token" })
+        }
 
+        const user = await User.findById(payload.sub).select("-password")
         if (!user) {
             return res.status(401).json({
-                message: "User not found"
+                message: "Authentication required"
             })
         }
 
         req.user = user
-
-        next()
-
+        return next()
     } catch (error) {
-        console.log(error)
+        console.error("Authentication failed", error)
         return res.status(500).json({
             message: "Server error"
         })

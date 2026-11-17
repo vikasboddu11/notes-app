@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import axios from '../utils/axiosInstance'
 
 function NoteModel({note, isOpen, onClose, onSave}) {
@@ -6,15 +6,19 @@ function NoteModel({note, isOpen, onClose, onSave}) {
     const [title, setTitle] = useState("")
     const [description, setDescription] = useState("")
     const [error, setError] = useState("")
+    const [isSaving, setIsSaving] = useState(false)
 
     useEffect(() => {
+        if (!isOpen) return
         setTitle(note? note.title: "")
         setDescription(note? note.description: "")
         setError("")
-    },[note])
+    }, [note, isOpen])
 
     const handleSubmit = async(e) => {
         e.preventDefault()
+        setError("")
+        setIsSaving(true)
         try {
             const payload = {title, description}
             let data
@@ -26,12 +30,13 @@ function NoteModel({note, isOpen, onClose, onSave}) {
                 data = res.data
             }
             onSave(data)
-            setError("")
             setTitle("")
             setDescription("")
             onClose()
         } catch (error) {
-            setError(error.response?.data?.message || "Failed to save note")
+            setError(error.response?.data?.message || "Unable to save this note.")
+        } finally {
+            setIsSaving(false)
         }
     }
 
@@ -42,13 +47,15 @@ function NoteModel({note, isOpen, onClose, onSave}) {
         <h2 className="text-2xl font-semibold text-white mb-4">
           {note ? "Edit Note" : "Create Note"}
         </h2>
-        {error && <p className="text-red-400 mb-4">{error}</p>}
+        {error && <p role="alert" className="text-red-400 mb-4">{error}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              maxLength={150}
+              aria-label="Note title"
               placeholder="Note Title"
               className="w-full px-3 py-2 bg-gray-700 text-white border border-gray-600 rounded-md outline-none focus:ring-2 focus:ring-blue-500"
               required
@@ -56,9 +63,10 @@ function NoteModel({note, isOpen, onClose, onSave}) {
           </div>
           <div>
             <textarea
-              type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              maxLength={5000}
+              aria-label="Note description"
               placeholder="Note Description"
               className="w-full px-3 py-2 bg-gray-700 text-white border border-gray-600 rounded-md outline-none focus:ring-2 focus:ring-blue-500"
               rows={4}
@@ -68,9 +76,10 @@ function NoteModel({note, isOpen, onClose, onSave}) {
           <div className="flex space-x-2">
             <button
               type="submit"
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+              disabled={isSaving}
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-60"
             >
-              {note ? "Update" : "Create"}
+              {isSaving ? "Saving..." : note ? "Update" : "Create"}
             </button>
             <button
               type="button"
